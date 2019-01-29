@@ -34,7 +34,7 @@ void receive_message(int socket_fd, char *in_buf)
     memset(in_buf, 0, (sizeof in_buf));
     if((msg_len = recv(socket_fd, in_buf, MAXDATASIZE, 0)) == -1)
     {
-        perror("recv: ");
+        perror("recvd: ");
     }
     // End message with terminating char
     in_buf[msg_len] = '\0';

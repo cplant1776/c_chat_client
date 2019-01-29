@@ -9,8 +9,11 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/time.h>
+#include <my_global.h>
+#include <mysql.h>
 
 #include "../functions.h"
+#include "chatting.c"
 
 #define FAMILY AF_INET
 #define ADDRESS INADDR_ANY
@@ -19,14 +22,43 @@
 #define BUFFERSIZE 1024
 #define USERNAMESIZE 25
 
+#define MYSQLUSER "tester"
+#define MYSQLPASSWORD "tester_pw"
+#define DATABASENAME "my_server"
 
+//BUG: server crash when entering known username
+
+//global database conneciton
+MYSQL *con;
 
 struct client
 {
     int socket;
     char username[USERNAMESIZE];
-    bool receive_private;
+    my_boolean receive_private;
 };
+
+void connect_to_database(MYSQL *con)
+{
+  if (con == NULL)
+  {
+      fprintf(stderr, "mysql_init() failed\n");
+      exit(1);
+  }
+
+  if (mysql_real_connect(con, "localhost", "tester", "tester_pw",
+          "my_server", 0, NULL, 0) == NULL)
+  {
+      finish_with_error(con);
+  }
+}
+
+void finish_with_error(MYSQL *con)
+{
+  fprintf(stderr, "%s\n", mysql_error(con));
+  mysql_close(con);
+  exit(1);
+}
 
 void set_socket_options(struct sockaddr_in *address)
 {
@@ -86,48 +118,118 @@ void add_client_connection(int listener, fd_set *read_fs, int *max_sd, struct so
         }
     }
 
-    add_client_username(listener, read_fs, max_sd, client_socket, new_socket);
+    welcome_sequence(listener, read_fs, max_sd, client_socket, new_socket);
 }
 
-void add_client_username(int listener, fd_set *read_fs, int *max_sd, struct client *client_socket, int new_socket)
+
+void add_client_username(fd_set *read_fs, struct client *client_socket, char *buf)
+{
+
+    int sock_desc;
+    // Incoming transmission
+    // Loop through all connections
+    int i;
+    for (i=0; i < MAXCONNECTIONS; i++)
+    {
+        sock_desc = client_socket[i].socket;
+        // if a connected client triggered read
+        if (FD_ISSET(sock_desc, read_fs))
+        {
+            // associate username with client
+            strcpy(client_socket[i].username, buf);
+        }
+    }
+}
+
+
+void welcome_sequence(int listener, fd_set *read_fs, int *max_sd, struct client *client_socket, int new_socket)
+{
+    send_welcome_message(new_socket);
+    char name[USERNAMESIZE];
+    char pw[BUFFERSIZE];
+
+    //wait for username
+    wait_for_input(listener, read_fs, max_sd, client_socket);
+
+    //if input comes from client socket
+    if (!FD_ISSET(listener, read_fs))
+    {
+        read_in_message(new_socket, name);
+        if(is_new_user(name))
+        {
+            enter_new_user_password(listener, read_fs, max_sd, client_socket, new_socket, pw);
+            save_new_user_credentials(name, pw);
+        }
+            add_client_username(read_fs, client_socket, name);
+    }
+}
+
+void save_new_user_credentials(char *name, char *password)
+{
+    //cosntruct query
+    char insert_query[1000];
+    insert_query[0] = '\0';
+    strcat(insert_query, "INSERT INTO user_credentials(username, password) VALUES('");
+    strcat(insert_query, name);
+    strcat(insert_query, "', '");
+    strcat(insert_query, password);
+    strcat(insert_query, "')");
+
+    if (mysql_query(con, insert_query))
+    {
+      finish_with_error(con);
+    }
+    puts("New user added!\n");
+}
+
+void enter_new_user_password(int listener, fd_set *read_fs, int *max_sd, struct client *client_socket, int new_socket, char *password)
+{
+    char *new_password_message = "Username not found. Please enter a password for the new user: ";
+    send(new_socket, new_password_message, strlen(new_password_message), 0);
+
+    //wait for password
+    wait_for_input(listener, read_fs, max_sd, client_socket);
+
+    //if input comes from client socket
+    if (!FD_ISSET(listener, read_fs))
+    {
+        read_in_message(new_socket, password);
+    }
+
+}
+
+my_boolean is_new_user(char *name)
+{
+    //cosntruct query
+    char query[BUFFERSIZE];
+    query[0] = '\0';
+    strcat(query, "SELECT username FROM user_credentials WHERE username='");
+    strcat(query, name);
+    strcat(query, "'");
+
+    //run query and store results
+    if (mysql_query(con, query))
+    {
+        finish_with_error(con);
+    }
+
+    MYSQL_RES *result = mysql_store_result(con);
+
+    // check if empty set
+    int num_of_results = mysql_num_rows(result);
+    //
+    if(num_of_results < 1)
+        return true;
+    else
+        return false;
+}
+
+void send_welcome_message(int new_socket)
 {
     //send new connection greeting message and ask for username
     char *welcome_message = "Welcome! Please enter a username: ";
     send(new_socket, welcome_message, strlen(welcome_message), 0);
     puts("Welcome message sent successfully");
-
-    wait_for_input(listener, read_fs, max_sd, client_socket);
-
-    if (!FD_ISSET(listener, read_fs))
-    {
-        int sock_desc;
-        char buf[USERNAMESIZE];
-        // Incoming transmission
-        // Loop through all connections
-        int i;
-        for (i=0; i < MAXCONNECTIONS; i++)
-        {
-            sock_desc = client_socket[i].socket;
-            // if a connected client triggered read
-            if (FD_ISSET(sock_desc, read_fs))
-            {
-                // read username and associate it with client
-                read_in_message(sock_desc, buf);
-                strcpy(client_socket[i].username, buf);
-            }
-        }
-        char *username_message = "Username added successfully! Ready to receive messages!";
-        send(new_socket, username_message, strlen(username_message), 0);
-    }
-}
-
-void read_in_message(int sock_desc, char *buffer)
-{
-    int read_len;
-    read_len = read(sock_desc, buffer, BUFFERSIZE);
-    // Add terminating character to end
-    buffer[read_len] = '\0';
-
 }
 
 void broadcast_new_message(int sock_desc, char *buffer, int max_sd, struct client *client_socket, fd_set *read_fd)
@@ -145,6 +247,15 @@ void broadcast_new_message(int sock_desc, char *buffer, int max_sd, struct clien
         }
 }
 
+void read_in_message(int sock_desc, char *buffer)
+{
+    int read_len;
+    read_len = read(sock_desc, buffer, BUFFERSIZE);
+    // Add terminating character to end
+    buffer[read_len] = '\0';
+
+}
+
 void append_username_to_message(char *buffer, char *name)
 {
     // prepare to add ": " after name
@@ -156,6 +267,7 @@ void append_username_to_message(char *buffer, char *name)
     strcat(buffer, new_chars);
     strcat(buffer, temp);
 
+    //SEGMENTATION FAULT SOMEWHERE IN HERE/
     //free the memory
     // free(temp);
     // free(new_chars);
@@ -178,6 +290,7 @@ void append_username_to_private_message(char *buffer, char *sender)
     // chop of @[receiver name] from buffer
     strcat(buffer, &temp[first_delimiter]);
 
+    //SEGMENTATION FAULT SOMEWHERE IN HERE/
     //free the memory
     // free(temp);
     // free(new_chars);
@@ -282,6 +395,7 @@ int wait_for_input(int listener, fd_set *read_fd, int *max_sd, struct client *cl
         return activity;
 }
 
+
 int main(int argc , char *argv[])
 {
     int listener;
@@ -289,6 +403,11 @@ int main(int argc , char *argv[])
     struct sockaddr_in address;
     char buffer[BUFFERSIZE];
     struct client client_socket[MAXCONNECTIONS];
+
+    // Open global database connection
+    con = mysql_init(NULL);
+    connect_to_database(con);
+
     // int client_socket[MAXCONNECTIONS];
     fd_set read_fd;
 
