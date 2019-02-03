@@ -21,6 +21,11 @@
 
 #include "config.h"
 
+// TODO
+// //other users cant do anything if server is waiting on user to enter username/password - add a path for if 3rd party message is received while user is loggin in
+// create protections against improper user use
+// (server/client) occasionally infinite loops when (client/server) drops connection
+
 
 
 int main(int argc , char *argv[])

@@ -20,7 +20,7 @@ void add_client_connection(int listener, fd_set *read_fs, int *max_sd, struct so
 
 void add_client_username(fd_set *read_fs, struct client *client_socket, char *buf);
 
-void read_inbound_buffer(int sock_desc, char *buffer);
+void read_into_buffer(int sock_desc, char *buffer);
 
 void broadcast_new_message(int sock_desc, char *buffer, int max_sd, struct client *client_socket, fd_set *read_fd);
 
