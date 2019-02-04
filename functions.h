@@ -1,7 +1,4 @@
-
-struct client;
-
-typedef enum { false, true } my_boolean;
+#include "server/globals.h"
 
 int is_private_message(char *buffer);
 
@@ -23,7 +20,7 @@ void add_client_connection(int listener, fd_set *read_fs, int *max_sd, struct so
 
 void add_client_username(fd_set *read_fs, struct client *client_socket, char *buf);
 
-void read_in_message(int sock_desc, char *buffer);
+void read_inbound_buffer(int sock_desc, char *buffer);
 
 void broadcast_new_message(int sock_desc, char *buffer, int max_sd, struct client *client_socket, fd_set *read_fd);
 
@@ -33,8 +30,15 @@ int wait_for_input(int listener, fd_set *read_fd, int *max_sd, struct client *cl
 
 void append_username_to_message(char *buffer, char *name);
 
+void append_username_to_private_message(char *buffer, char *sender);
+
 void welcome_sequence(int listener, fd_set *read_fs, int *max_sd, struct client *client_socket, int new_socket);
 
 void send_welcome_message(int new_socket);
 
 my_boolean is_new_user(char *name);
+
+void enter_new_user_password(int listener, fd_set *read_fs, int *max_sd, struct client *client_socket, int new_socket, char *password);
+
+void save_new_user_credentials(char *name, char *password);
+
